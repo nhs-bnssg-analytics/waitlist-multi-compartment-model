@@ -519,7 +519,7 @@ fig6dat<-res %>%
   mutate(Capacity=factor(Capacity,levels=c("Low","Expected","High"))) 
 
 fig6<-fig6dat %>%
-  bind_rows(fig4dat %>% filter(period==min(period)) %>% mutate(period=floor_date(period,"month"))) %>%
+  bind_rows(fig6dat %>% filter(period==min(period)) %>% mutate(period=floor_date(period,"month"))) %>%
   ggplot() +
   geom_step(aes(x=period,y=value/1000,colour=Capacity,linetype=Referrals),direction="vh",alpha=0.8) +
   facet_wrap(~months_waited,scales="free_y") +
