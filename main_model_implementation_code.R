@@ -3,7 +3,7 @@ require(tidyverse)
 require(lubridate)
 require(forecast)
 require(timeDate)
-setwd("S:/Finance/Shared Area/BNSSG - BI/8 Modelling and Analytics/projects/corona/rtt/ode model (2023) - with time stocks/")
+setwd("S:/Finance/Shared Area/BNSSG - BI/8 Modelling and Analytics/projects/rtt/multi-stock model/")
 
 ##################################################################
 # USER INPUTS
@@ -31,7 +31,7 @@ proj_ref_cap_manual<-read.csv("proj_ref_cap_manual.csv")
 
 ##################################################################
 # load processed raw data (monthly nhs-e data, processed at trust/spec level to referrals/incomplete/complete - see nick howlett about this part)
-full_dat_trusts<-read.csv("calc-dat-monthly.csv") %>%
+full_dat_trusts<-read.csv("calc-dat-monthly-OLD.csv") %>%
   filter(period>as.Date(max(period)) %m-% months(1) -years(2))
 trusts<-unique(full_dat_trusts$trust)
 
@@ -45,7 +45,7 @@ full_dat_trusts<-bind_rows(full_dat_trusts,full_dat_trusts_eng)
 ##################################################################
 # specify workdir for all outputs (puts outputs in a dedicated folder, so not to overwrite existing ones)
 outdir<-paste0(getwd(),"/outputs_latest_data=",max(full_dat_trusts$period),
-"_calib_period=",calibrate_period_months,"_(created_",gsub(" ","_",gsub(":","-",Sys.time())),")/")
+               "_calib_period=",calibrate_period_months,"_(created_",gsub(" ","_",gsub(":","-",Sys.time())),")/")
 dir.create(outdir)
 
 
@@ -55,7 +55,7 @@ dir.create(outdir)
 #analysis_list<-data.frame(trust=trusts,specialty="Total")
 analysis_list<-data.frame(trust=character(0),specialty=character(0)) %>%
   add_row(trust="ENGLAND",specialty="Total") #%>%
-  #add_row(trust="NORTH BRISTOL NHS TRUST",specialty="Total")
+#add_row(trust="NORTH BRISTOL NHS TRUST",specialty="Total")
 
 ##################################################################
 # for each modelling granularity...
@@ -66,8 +66,8 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
   
   avgworkdaysinmonth<-(365-52*2-8)/12
   workdays<-data.frame(dates=seq(floor_date(as.Date(min(full_dat_trusts$period)),"month"),
-                       as.Date(max(full_dat_trusts$period)),
-                       by=1)) %>%
+                                 as.Date(max(full_dat_trusts$period)),
+                                 by=1)) %>%
     mutate(wkday=weekdays(dates)) %>%
     filter(!wkday %in% c("Saturday","Sunday")) %>%
     filter(!dates %in% as.Date(holidayLONDON(2010:2030))) %>%
@@ -194,8 +194,8 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
     geom_line(aes(y=value.y),colour="red",alpha=0.8) +
     facet_grid(type~months_waited,scales="free_y",labeller=labeller(months_waited=label_wrap_gen(12))) +
     scale_x_date(breaks=seq(as.Date("2023-01-01"),as.Date("2100-01-01"),by="1 year"),date_labels="%b\n%Y")+
-    labs(title=paste0(analysis_trust,", ",analysis_spec),
-         subtitle="Compartment-level capacity and reneging rates over time") +
+    #labs(title=paste0(analysis_trust,", ",analysis_spec),
+    #     subtitle="Compartment-level capacity and reneging rates over time") +
     theme_bw() +
     theme(plot.subtitle=element_text(face="italic"),
           axis.title.x=element_blank(),
@@ -212,7 +212,7 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
   # backtest
   
   btest<-function(backtest_duration) {
-  
+    
     bt_reneg_cap<-expand_grid(period_id=(max(x1$period_id)-backtest_duration-calibrate_period_months+1):(max(x1$period_id)-backtest_duration),
                               months_waited_id=min(x1$months_waited_id,na.rm=TRUE):max(x1$months_waited_id,na.rm=TRUE))
     bt_reneg_cap$node_inflow<-sapply(1:nrow(bt_reneg_cap),function(y) {
@@ -300,9 +300,9 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
                                    "reneges_bt"=reneges)) 
       } else {
         bt_res<-bind_rows(bt_res,data.frame(period_id=p,
-                                                  months_waited_id=min(x1$months_waited_id,na.rm=TRUE):max(x1$months_waited_id,na.rm=TRUE),
-                                                  incompletes_bt=0,
-                                                  reneges_bt=0))
+                                            months_waited_id=min(x1$months_waited_id,na.rm=TRUE):max(x1$months_waited_id,na.rm=TRUE),
+                                            incompletes_bt=0,
+                                            reneges_bt=0))
       }
     }
     
@@ -336,30 +336,40 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
                   summarise(value=sum(value)) %>%
                   mutate(months_waited="Total"))
     
-    bt2_mape_monthswaited<-x2_bt3 %>%
+    bt2_errors_monthswaited<-x2_bt3 %>%
       pivot_wider(names_from=metric,values_from=value) %>%
       mutate(ape=abs(100*(Predicted-Data)/Data)) %>%
+      mutate(ae=abs(Predicted-Data)) %>%
       group_by(months_waited) %>%
-      summarise(mape=mean(ape)) %>%
+      summarise(mape=mean(ape),mae=mean(ae)) %>%
       mutate(date=max(x2_bt$period)) %>%
       mutate(months_waited=factor(months_waited,levels=c(as.character(months_waited_look_up$months_waited),"Total")))
     
-    return(list(x2_bt3,bt2_mape_monthswaited))
-  
+    return(list(x2_bt3,bt2_errors_monthswaited))
+    
   }
   
   bt6<-btest(6)
   bt12<-btest(12)
   
-  bt2_mape_monthswaited<-bind_rows(
-    bt6[[2]] %>% mutate(btdur="6 month backtest"),
-    bt12[[2]] %>% mutate(btdur="12 month backtest")
-  ) %>% mutate(btdur=factor(btdur,levels=c("6 month backtest","12 month backtest")))
+  bt2_errors_monthswaited<-bind_rows(
+    bt6[[2]] %>% rename("error"=mape) %>% mutate(btdur="6mo backtest (MAPE, %)"),
+    bt12[[2]] %>% rename("error"=mape) %>% mutate(btdur="12mo backtest (MAPE, %)"),
+    bt6[[2]] %>% rename("error"=mae) %>% mutate(btdur="6mo backtest (MAE, 000s)"),
+    bt12[[2]] %>% rename("error"=mae) %>% mutate(btdur="12mo backtest (MAE, 000s)")
+  ) %>% 
+    mutate(btdur=factor(btdur,levels=c("6mo backtest (MAPE, %)","12mo backtest (MAPE, %)","6mo backtest (MAE, 000s)","12mo backtest (MAE, 000s)"))) %>%
+    select(months_waited,error,date,btdur) %>%
+    mutate(error=case_when(btdur %in% c("6mo backtest (MAPE, %)","12mo backtest (MAPE, %)") ~round(error,1),
+                           btdur %in% c("6mo backtest (MAE, 000s)","12mo backtest (MAE, 000s)") ~(round(error/1000,1))))
   
   x2_bt3<-bind_rows(
-    bt6[[1]] %>% mutate(btdur="6 month backtest"),
-    bt12[[1]] %>% mutate(btdur="12 month backtest")
-  ) %>% mutate(btdur=factor(btdur,levels=c("6 month backtest","12 month backtest")))
+    bt6[[1]] %>% mutate(btdur="6mo backtest (MAPE, %)"),
+    bt12[[1]] %>% mutate(btdur="12mo backtest (MAPE, %)"),
+    bt6[[1]] %>% mutate(btdur="6mo backtest (MAE, 000s)"),
+    bt12[[1]] %>% mutate(btdur="12mo backtest (MAE, 000s)")
+  ) %>% 
+    mutate(btdur=factor(btdur,levels=c("6mo backtest (MAPE, %)","12mo backtest (MAPE, %)","6mo backtest (MAE, 000s)","12mo backtest (MAE, 000s)")))
   
   fig4<-x2_bt3 %>%
     bind_rows(x2_bt3 %>%
@@ -368,18 +378,18 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
                 mutate(period=floor_date(period,"month"))) %>%
     mutate(months_waited=factor(months_waited,levels=c("Total",as.character(months_waited_look_up$months_waited)))) %>%
     pivot_wider(names_from=metric,values_from=value) %>%
-    mutate(percent_error=(Predicted-Data)/Data) %>%
-    ggplot(aes(x=period,y=percent_error)) +
+    mutate(error=case_when(btdur %in% c("6mo backtest (MAPE, %)","12mo backtest (MAPE, %)") ~100*(Predicted-Data)/Data,
+                           btdur %in% c("6mo backtest (MAE, 000s)","12mo backtest (MAE, 000s)") ~(Predicted-Data)/1000)) %>%
+    ggplot(aes(x=period,y=error)) +
     geom_hline(yintercept=0,alpha=0.8,colour="black") +
     geom_step(direction="vh",alpha=0.8,colour="red") +
-    geom_text(data=bt2_mape_monthswaited,aes(label=glue::glue("{round(mape,1)}%"),x=date,y=-Inf),vjust=-1,hjust=1,inherit.aes=FALSE,size=2.5) +
-    facet_grid(btdur~months_waited,labeller=labeller(months_waited=label_wrap_gen(10))) +
+    geom_text(data=bt2_errors_monthswaited,aes(label=error,x=date,y=-Inf),vjust=-1,hjust=1,inherit.aes=FALSE,size=2.5) +
+    facet_grid(btdur~months_waited,labeller=labeller(months_waited=label_wrap_gen(10)),scales="free_y") +
     scale_x_date(breaks=seq(as.Date("2000-04-01"),as.Date("2100-01-01"),by="6 month"),date_labels="%b\n%Y") +
-    scale_y_continuous(expand=c(0.2,0),labels=scales::percent) +
-    #coord_trans(y='log') +
-    ylab("Percent error in number of patients waiting") +
-    labs(title=paste0(analysis_trust,", ",analysis_spec),
-         subtitle="Backtest percent error in projected waitlist size, over most recent 6 and 12 months") +
+    scale_y_continuous(expand=c(0.2,0),labels=scales::comma) +
+    ylab("Error in number of patients waiting") +
+    #labs(title=paste0(analysis_trust,", ",analysis_spec),
+    #     subtitle="Backtest error in projected waitlist size, over most recent 6 and 12 months") +
     theme_bw() +
     theme(plot.subtitle=element_text(face="italic"),
           legend.title=element_blank(),
@@ -389,7 +399,7 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
           axis.title.x=element_blank(),
           panel.grid.minor = element_blank())
   
-  png(paste0(outdir,"fig4_",analysis_trust,"_",analysis_spec,".png"),height=4,width=9,units="in",res=400)
+  png(paste0(outdir,"fig4_",analysis_trust,"_",analysis_spec,".png"),height=8,width=9,units="in",res=400)
   print(fig4)
   dev.off()
   
@@ -452,8 +462,8 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
     scale_y_continuous(labels = scales::comma) +
     facet_wrap(~type) +
     ylab("Numbers per month (000s)") +
-    labs(title=paste0(analysis_trust,", ",analysis_spec),
-         subtitle="Forecasted new referrals and treatment capacity by TBATS method") +
+    #labs(title=paste0(analysis_trust,", ",analysis_spec),
+    #     subtitle="Forecasted new referrals and treatment capacity by TBATS method") +
     theme_bw()+
     theme(plot.subtitle=element_text(face="italic"),
           axis.title.x=element_blank(),
@@ -472,7 +482,7 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
                referrals=tbats_ref2$value[which(tbats_ref2$scen==scen_combs$ref[y])],
                capacity=tbats_cap2$value[which(tbats_cap2$scen==scen_combs$cap[y])])
   }))
-    
+  
   
   
   
@@ -565,8 +575,8 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
     scale_colour_manual(values=c("red","darkorange","darkgreen")) +
     scale_linetype_manual(values=c("solid","dashed","dotted")) +
     ylab("Number of patients waiting (000s)") +
-    labs(title=paste0(analysis_trust,", ",analysis_spec),
-         subtitle="Projected waitlist size across different wait durations") +
+    #labs(title=paste0(analysis_trust,", ",analysis_spec),
+    #     subtitle="Projected waitlist size across different wait durations") +
     theme_bw() + 
     theme(plot.subtitle=element_text(face="italic"),
           axis.title.x=element_blank(),
@@ -626,14 +636,13 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
     geom_step(aes(x=period,y=data),colour="black",alpha=0.8) +
     geom_step(direction="vh",alpha=0.8) + 
     facet_wrap(~type,nrow=4,scales="free_y") +
-    #labs(title=paste0(analysis_trust,", ",analysis_spec)) +
     scale_x_date(breaks=seq(as.Date("2000-01-01"),as.Date("2100-01-01"),by="6 month"),date_labels="%b\n%Y") +
     scale_y_continuous(labels=scales::percent) +
     scale_colour_manual(values=c("red","darkorange","darkgreen")) +
     scale_linetype_manual(values=c("solid","dashed","dotted")) +
     ylab("Waiting patients waiting under certain durations") +
-    labs(title=paste0(analysis_trust,", ",analysis_spec),
-         subtitle="Projected quantiles of wait time distribution") +
+    #labs(title=paste0(analysis_trust,", ",analysis_spec),
+    #     subtitle="Projected quantiles of wait time distribution") +
     theme_bw() +
     theme(plot.subtitle=element_text(face="italic"),
           axis.title.x=element_blank(),
@@ -656,7 +665,7 @@ for (analysis_unit in c(1:nrow(analysis_list))) {
                     select(scenario,period_id,months_waited_id,incompletes,reneges)) %>%
     left_join(period_look_up,by="period_id") %>%
     left_join(months_waited_look_up,by="months_waited_id")
-
+  
   write.csv(resx,file=paste0(outdir,"res_",analysis_trust,"_",analysis_spec,".csv"),row.names=FALSE)
   
 }
